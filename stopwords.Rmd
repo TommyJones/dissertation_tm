@@ -1,0 +1,240 @@
+---
+title: "stopwords"
+author: "Thomas W. Jones"
+date: "5/9/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.width = 6, fig.height = 6)
+
+rm(list = ls())
+
+library(textmineR)
+
+load("data_derived/cmpl_text_sample.RData")
+load("data_derived/nih_text_sample.RData")
+load("data_derived/r_stats_text_unique.RData")
+```
+
+
+```{r initial_calculations}
+# define a function to get term frequencies from a single document
+GetSingleDocTf <- function(doc_row){
+  
+  tf_mat <- TermDocFreq(dtm = rbind(doc_row, doc_row))
+  
+  tf_mat <- data.frame(term = tf_mat$term,
+                       term_freq = tf_mat$term_freq,
+                       stringsAsFactors = F)
+  
+  tf_mat <- tf_mat[ order(tf_mat$term_freq, decreasing = T) , ]
+  
+  tf_mat$rank <- seq_along(tf_mat[[ 1 ]])
+  
+  tf_mat
+}
+
+# get corpus term frequencies for our three corpora
+cmpl_dtm <- CreateDtm(cmpl_text_sample,
+                      ngram_window = c(1, 2), # justified by that one paper :)
+                      stopword_vec = c())
+
+cmpl_tf <- TermDocFreq(cmpl_dtm)
+
+cmpl_tf <- cmpl_tf[ order(cmpl_tf$term_freq, decreasing = TRUE) , ]
+
+cmpl_tf$rank <- seq_along(cmpl_tf[[ 1 ]])
+
+nih_dtm <- CreateDtm(nih_text_sample,
+                      ngram_window = c(1, 2), # justified by that one paper :)
+                      stopword_vec = c())
+
+nih_tf <- TermDocFreq(nih_dtm)
+
+nih_tf <- nih_tf[ order(nih_tf$term_freq, decreasing = TRUE) , ]
+
+nih_tf$rank <- seq_along(nih_tf[[ 1 ]])
+
+
+rstats_dtm <- CreateDtm(r_stats_text_unique,
+                      ngram_window = c(1, 2), # justified by that one paper :)
+                      stopword_vec = c())
+
+rstats_tf <- TermDocFreq(rstats_dtm)
+
+rstats_tf <- rstats_tf[ order(rstats_tf$term_freq, decreasing = TRUE) , ]
+
+rstats_tf$rank <- seq_along(rstats_tf[[ 1 ]])
+
+
+# get stopword list from tm
+sw <- tm::stopwords("english")
+
+
+```
+
+## Defining stopwords with a pre-defined list
+
+Using stopwords from a pre-defined list can be problematic. There isn't much separation between the frequencies of stop words and the frequencies of regular words in a corpus. This is likely due to two effects. First, many of these pre-defined words may actually be infrequent in a corpus. As a result, we have to question whether these words are of little information value in this context. Second, there may be words in our corpus that are of little information value in this specific context. 
+
+```{r list_plots}
+
+# plot of nih term freqs
+plot(log(nih_tf$rank), log(nih_tf$term_freq), type = "l",
+     main = "Term Frequncy of Stopwords from a List, NIH Corpus",
+     xlab = "log(rank)", ylab = "log(frequncy)",
+     ylim = c(-1, max(log(nih_tf$term_freq)) + 1),
+     yaxt = "n")
+
+points(log(nih_tf$rank[ nih_tf$term %in% sw ]), 
+       log(nih_tf$term_freq[ nih_tf$term %in% sw ]) + 1,
+       pch = 19,
+       col = rgb(1,0,0,0.3))
+
+points(log(nih_tf$rank[ ! nih_tf$term %in% sw ]),
+       log(nih_tf$term_freq[ ! nih_tf$term %in% sw ]) - 1,
+       pch = 19,
+       col = rgb(0,0,1,0.2))
+
+legend("topright",
+       legend = c("overall", "stopwords", "non-stopwords"),
+       lty = c(1,NA,NA),
+       col = c("black", "red", "blue"),
+       pch = c(NA, 19, 19))
+
+
+# plot of cmpl term freqs
+plot(log(cmpl_tf$rank), log(cmpl_tf$term_freq), type = "l",
+     main = "Term Frequncy of Stopwords from a List, cmpl Corpus",
+     xlab = "log(rank)", ylab = "log(frequncy)",
+     ylim = c(-1, max(log(cmpl_tf$term_freq)) + 1),
+     yaxt = "n")
+
+points(log(cmpl_tf$rank[ cmpl_tf$term %in% sw ]), 
+       log(cmpl_tf$term_freq[ cmpl_tf$term %in% sw ]) + 1,
+       pch = 19,
+       col = rgb(1,0,0,0.3))
+
+points(log(cmpl_tf$rank[ ! cmpl_tf$term %in% sw ]),
+       log(cmpl_tf$term_freq[ ! cmpl_tf$term %in% sw ]) - 1,
+       pch = 19,
+       col = rgb(0,0,1,0.2))
+
+legend("topright",
+       legend = c("overall", "stopwords", "non-stopwords"),
+       lty = c(1,NA,NA),
+       col = c("black", "red", "blue"),
+       pch = c(NA, 19, 19))
+
+
+# plot of rstats term freqs
+plot(log(rstats_tf$rank), log(rstats_tf$term_freq), type = "l",
+     main = "Term Frequncy of Stopwords from a List, rstats Corpus",
+     xlab = "log(rank)", ylab = "log(frequncy)",
+     ylim = c(-1, max(log(rstats_tf$term_freq)) + 1),
+     yaxt = "n")
+
+points(log(rstats_tf$rank[ rstats_tf$term %in% sw ]), 
+       log(rstats_tf$term_freq[ rstats_tf$term %in% sw ]) + 1,
+       pch = 19,
+       col = rgb(1,0,0,0.3))
+
+points(log(rstats_tf$rank[ ! rstats_tf$term %in% sw ]),
+       log(rstats_tf$term_freq[ ! rstats_tf$term %in% sw ]) - 1,
+       pch = 19,
+       col = rgb(0,0,1,0.2))
+
+legend("topright",
+       legend = c("overall", "stopwords", "non-stopwords"),
+       lty = c(1,NA,NA),
+       col = c("black", "red", "blue"),
+       pch = c(NA, 19, 19))
+
+```
+
+## Defining stopwords based on relative document frequency
+A better heuristic may be to define stopwords based on relative document frequency. In other words, a stopword is a word appearing in a high proportion of documents. 
+
+This gives a cleaner division. But... [look at the individual words excluded and draw some conclusions ]
+
+```{r relfreq_plots}
+
+# plot of nih term freqs
+plot(log(nih_tf$rank), log(nih_tf$term_freq), type = "l",
+     main = "Term Frequncy of Stopwords in 50% or More Documents, NIH Corpus",
+     xlab = "log(rank)", ylab = "log(frequncy)",
+     ylim = c(-1, max(log(nih_tf$term_freq)) + 1),
+     yaxt = "n")
+
+points(log(nih_tf$rank[ nih_tf$doc_freq >= nrow(nih_dtm) / 2 ]), 
+       log(nih_tf$term_freq[ nih_tf$doc_freq >= nrow(nih_dtm) / 2 ]) + 1,
+       pch = 19,
+       col = rgb(1,0,0,0.3))
+
+points(log(nih_tf$rank[ ! nih_tf$doc_freq >= nrow(nih_dtm) / 2 ]),
+       log(nih_tf$term_freq[ ! nih_tf$doc_freq >= nrow(nih_dtm) / 2 ]) - 1,
+       pch = 19,
+       col = rgb(0,0,1,0.2))
+
+legend("topright",
+       legend = c("overall", "stopwords", "non-stopwords"),
+       lty = c(1,NA,NA),
+       col = c("black", "red", "blue"),
+       pch = c(NA, 19, 19))
+
+
+# plot of cmpl term freqs
+plot(log(cmpl_tf$rank), log(cmpl_tf$term_freq), type = "l",
+     main = "Term Frequncy of Stopwords in 50% or More Documents, cmpl Corpus",
+     xlab = "log(rank)", ylab = "log(frequncy)",
+     ylim = c(-1, max(log(cmpl_tf$term_freq)) + 1),
+     yaxt = "n")
+
+points(log(cmpl_tf$rank[ cmpl_tf$doc_freq >= nrow(cmpl_dtm) / 2 ]), 
+       log(cmpl_tf$term_freq[ cmpl_tf$doc_freq >= nrow(cmpl_dtm) / 2 ]) + 1,
+       pch = 19,
+       col = rgb(1,0,0,0.3))
+
+points(log(cmpl_tf$rank[ ! cmpl_tf$doc_freq >= nrow(cmpl_dtm) / 2 ]),
+       log(cmpl_tf$term_freq[ ! cmpl_tf$doc_freq >= nrow(cmpl_dtm) / 2 ]) - 1,
+       pch = 19,
+       col = rgb(0,0,1,0.2))
+
+legend("topright",
+       legend = c("overall", "stopwords", "non-stopwords"),
+       lty = c(1,NA,NA),
+       col = c("black", "red", "blue"),
+       pch = c(NA, 19, 19))
+
+
+# plot of rstats term freqs
+plot(log(rstats_tf$rank), log(rstats_tf$term_freq), type = "l",
+     main = "Term Frequncy of Stopwords in 50% or More Documents, rstats Corpus",
+     xlab = "log(rank)", ylab = "log(frequncy)",
+     ylim = c(-1, max(log(rstats_tf$term_freq)) + 1),
+     yaxt = "n")
+
+points(log(rstats_tf$rank[ rstats_tf$doc_freq >= nrow(rstats_dtm) / 2 ]), 
+       log(rstats_tf$term_freq[ rstats_tf$doc_freq >= nrow(rstats_dtm) / 2 ]) + 1,
+       pch = 19,
+       col = rgb(1,0,0,0.3))
+
+points(log(rstats_tf$rank[ ! rstats_tf$doc_freq >= nrow(rstats_dtm) / 2 ]),
+       log(rstats_tf$term_freq[ ! rstats_tf$doc_freq >= nrow(rstats_dtm) / 2 ]) - 1,
+       pch = 19,
+       col = rgb(0,0,1,0.2))
+
+legend("topright",
+       legend = c("overall", "stopwords", "non-stopwords"),
+       lty = c(1,NA,NA),
+       col = c("black", "red", "blue"),
+       pch = c(NA, 19, 19))
+
+```
+
+
+
+## Defining stopwords based on statistical independence
+
+
