@@ -1,0 +1,1 @@
+The file r_stats_twitter.RData contains 5,322 tweets containing the hashtag #rstats downloaded sometime in 2016 using twitter's API
