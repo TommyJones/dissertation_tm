@@ -2,13 +2,17 @@
 # Functions to generate a corpus with varying properties
 ###########################################################
 
-#### Function to simulate phi and theta parameters
-SimulatePar <- function(D, V, K, cpus=4){
-    library("LearnBayes")
-    library("snowfall")
+### Function to simulate phi and theta parameters ------------------------------
+SimulatePar <- function(D, V, K, alpha = NULL, beta = NULL, cpus=4){
+
+  
+    if (is.null(alpha)) {
+      
+      alpha <- rep(5/K, K)
+      
+    }
     
-    alpha <- rep(5/K, K)
-    
+  if (is.null(beta)) {
     Zipf <- function(V) 1/(1:V * log(1.78 * V) ) # approximate empirical zipf distribution http://mathworld.wolfram.com/ZipfsLaw.html
     
     zipf.law <- Zipf(V=V)
@@ -17,119 +21,164 @@ SimulatePar <- function(D, V, K, cpus=4){
     
     beta <- zipf.law
     
-    # phi
-    phi <- sapply(1:K, function(j){
-        result <- sample(x = beta, size = V, replace = F)
-        names(result) <- paste("w", 1:V, sep="_")
-        return(result)
-    })
+  }
     
+    # phi
+
+    phi <- rmultinom(n = K, size = V, prob = beta) # maybe this should be dirichlet?
+
     phi <- t(phi)
+
+    phi <- phi / rowSums(phi)
+    
+    # phi <- LearnBayes::rdirichlet(n = K, par = beta)
+    
     
     rownames(phi) <- paste("t", 1:K, sep="_")
+    colnames(phi) <- paste("w_", 1:V, sep = "_")
     
     # theta
-    sfInit(parallel = T, cpus = cpus)
-    sfExport(list=c("alpha", "K"))
-    sfLibrary(LearnBayes)
     
-    theta <- sfSapply(1:D, function(j){
-        result <- as.numeric(rdirichlet(n = 1, par = alpha))
-        names(result) <- paste("t", 1:K, sep="_")
-        return(result)
-    })
+    theta <- LearnBayes::rdirichlet(n = D, par = alpha)
     
-    sfStop()
-    
-    theta <- t(theta)
+    # theta <- t(theta)
     rownames(theta) <- paste("d", 1:D, sep="_")
+    colnames(theta) <- rownames(phi)
     
     return(list(theta=theta, phi=phi))
 }
 
-# Function to sample from phi and theta to construct a dtm
-SampleDocs <- function(phi, theta, lambda, cpus=4){
-    library("Matrix")
-    library("snowfall")
-    
+### Function to sample from phi and theta to construct a dtm -------------------
+SampleDocs <- function(phi, theta, lambda, cpus = 4){
+
     D <- nrow(theta)
     K <- ncol(theta)
     V <- ncol(phi)
     
-    sfInit(parallel=T, cpus=cpus)
-    sfExport(list=c("phi", "D", "V", "K", "lambda"))
-    sfLibrary(Matrix)
+    # make theta into an iterator
+    step <- ceiling(nrow(theta) / cpus)
     
-    dtm <- sfApply(theta, 1, function(d){
-        n_d <- rpois(n = 1, lambda = lambda)
-        
-        result <-rep(0, V)
-        
-        for( j in 1:n_d){
-            topic <- as.numeric(rmultinom(n = 1, size = 1, prob = d))
-            word <- as.numeric(rmultinom(n = 1, size = 1, prob = phi[ topic == 1 , ]))
-            result <- result + word
-        }
-        
-        result <- Matrix(result, nrow = 1, sparse = T)
-        colnames(result) <- colnames(phi)
-        
-        return(result)
+    batches <- seq(1, nrow(theta), by = step)
+    
+    theta <- lapply(batches, function(x){
+      theta[ x:min(x + step - 1, nrow(theta)) , ]
     })
     
-    sfStop()
-            
-    # if you have a lot of documents, combine them in batches
-    if( length(dtm) > 500 ){
-        partitions <- length(dtm) / 500 # do in batches of about 500
+    theta <- lapply(theta, function(x){
+      as.list(as.data.frame(t(x)))
+    })
+    
+    # iterate over theta to perform sampling of words
+    dtm <- parallel::mclapply(theta, function(batch){
+      
+      result <- lapply(batch, function(d){
+        n_d <- rpois(n = 1, lambda = lambda) # document length / number of samples
         
-        partitions <- round(partitions)
+        # take n_d topic samples
+        topics <- rmultinom(n = n_d, size = 1, prob = d)
         
-        breaks <- round(length(dtm)/partitions)
+        # reduce and format to optimize for time/memory
+        topics <- rowSums(topics)
         
-        indeces <- seq(from = 1, to = length(dtm), by = breaks)
+        topics <- rbind(topic_index = seq_along(topics), 
+                        times_sampled = topics)
         
-        sfInit(parallel=T, cpus=min(cpus, partitions))
-        sfExport("dtm")
-        sfLibrary(Matrix)
+        topics <- topics[ , topics[ "times_sampled" , ] > 0 ]
         
-        dtm <- sfLapply(indeces, function(j){
-            
-            do.call(rBind, dtm[ j:min(j + breaks - 1, length(dtm)) ])
-            
+        # sample words from each topic
+        words <- apply(topics, 2, function(x){
+          
+          result <- rmultinom(n = x[ "times_sampled" ], size = 1, prob = phi[ x[ "topic_index" ] , ])
+          
+          if (! is.null(dim(result)))
+            result <- rowSums(result)
+          
+          result
         })
         
-        sfStop()
-    }
+        # turn into a single vector
+        words <- Matrix::Matrix(rowSums(words), nrow = 1, sparse = T)
+        
+        # garbage collection to reduce memory footprint
+        gc()
+        
+        return(words)
+      })
+      
+      result <- textmineR::RecursiveRbind(result)
+    }, mc.cores = cpus)
     
-    dtm <- do.call(rBind, dtm)
+    dtm <- RecursiveRbind(dtm)
     
-    rownames(dtm) <- rownames(theta)
+    
+    # theta <- as.list(as.data.frame(t(theta)))
+    # 
+    # # iterate over theta in parallel, performing sampling of words
+    # dtm <- parallel::mclapply(theta, function(d){
+    #   
+    #   n_d <- rpois(n = 1, lambda = lambda) # document length / number of samples
+    #   
+    #   # take n_d topic samples
+    #   topics <- rmultinom(n = n_d, size = 1, prob = d)
+    #   
+    #   # reduce and format to optimize for time/memory
+    #   topics <- rowSums(topics)
+    #   
+    #   topics <- rbind(topic_index = seq_along(topics), 
+    #                   times_sampled = topics)
+    #   
+    #   topics <- topics[ , topics[ "times_sampled" , ] > 0 ]
+    #   
+    #   # sample words from each topic
+    #   words <- apply(topics, 2, function(x){
+    #     
+    #     result <- rmultinom(n = x[ "times_sampled" ], size = 1, prob = phi[ x[ "topic_index" ] , ])
+    #     
+    #     if (! is.null(dim(result)))
+    #       result <- rowSums(result)
+    #     
+    #     result
+    #   })
+    #   
+    #   # turn into a single vector
+    #   words <- Matrix::Matrix(rowSums(words), nrow = 1, sparse = T)
+    # 
+    #   # garbage collection to reduce memory footprint
+    #   gc()
+    #   
+    #   return(words)
+    #   
+    # }, mc.cores = cpus)
+    # 
+    # dtm <- textmineR::RecursiveRbind(dtm)
+    
+    rownames(dtm) <- names(theta)
+    colnames(dtm) <- colnames(phi)
     
     return(dtm)
 }
 
 # function generates a theta for a given phi
-AddDocs <- function(K, D, cpus=4){
-    library("snowfall")
-    library("LearnBayes")
-    
-    alpha <- rep(5 / K, K)
-    
-    sfInit(parallel = T, cpus = cpus)
-    sfExport(list=c("alpha", "K"))
-    sfLibrary(LearnBayes)
-    
-    theta <- sfSapply(1:D, function(j){
-        result <- as.numeric(rdirichlet(n = 1, par = alpha))
-        names(result) <- paste("t", 1:K, sep="_")
-        return(result)
-    })
-    
-    sfStop()
-    
-    theta <- t(theta)
-    rownames(theta) <- paste("d", 1:D, sep="_")
-    
-    return(theta)
-}
+# AddDocs <- function(K, D, cpus=4){
+#     library("snowfall")
+#     library("LearnBayes")
+#     
+#     alpha <- rep(5 / K, K)
+#     
+#     sfInit(parallel = T, cpus = cpus)
+#     sfExport(list=c("alpha", "K"))
+#     sfLibrary(LearnBayes)
+#     
+#     theta <- sfSapply(1:D, function(j){
+#         result <- as.numeric(LearnBayes::rdirichlet(n = 1, par = alpha))
+#         names(result) <- paste("t", 1:K, sep="_")
+#         return(result)
+#     })
+#     
+#     sfStop()
+#     
+#     theta <- t(theta)
+#     rownames(theta) <- paste("d", 1:D, sep="_")
+#     
+#     return(theta)
+# }
