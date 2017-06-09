@@ -25,13 +25,10 @@ SimulatePar <- function(D, V, K, alpha = NULL, beta = NULL, cpus=4){
   }
     
     # phi
-
-    # phi <- rmultinom(n = K, size = V, prob = beta) # maybe this should be dirichlet?
-    # 
-    # phi <- t(phi)
-    # 
-    # phi <- phi / rowSums(phi)
     
+    # Use dirichlet, not multinomial. Variability of words within documents is
+    # controlled by scale of beta. If smallest entries of beta are tiny, then
+    # you have a "small sample" and zipf's law will not hold
     phi <- gtools::rdirichlet(n = K, alpha = beta)
     
     
